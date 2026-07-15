@@ -15,7 +15,7 @@ WiFiClient espClient;
 #define PORT    1883
 #define CHAT     "your_chat_topic"
 #define KEEPALIVE_SEC 15    // 此为实际时间的一半
-#define MESSAGE_SIZE 64
+#define MESSAGE_SIZE 128
 PubSubClient mqttClient(espClient);
 // 旋转编码器
 #define CLK 32  // A相
@@ -44,6 +44,7 @@ void mqttCallback(char* topic, uint8_t* payload, unsigned int length);
 void encoder_init();
 void letter(uint8_t currentCount);
 void show();
+void pin_init();
 
 void setup() {
     encoder_init();
@@ -52,10 +53,7 @@ void setup() {
     Generate_MAC_ID();
     mqtt_init();
     send_message("online", 1);
-    pinMode(yes, INPUT_PULLUP);
-    pinMode(back, INPUT_PULLUP);
-    pinMode(send, INPUT_PULLUP);
-    pinMode(light, OUTPUT);
+    pin_init();
     will_message[0] = '\0';
 }
 
@@ -64,7 +62,6 @@ void loop() {
     mqttClient.loop();
     long currentCount = encoder.getCount();
     letter(currentCount);
-
     // 选中字母
     if (digitalRead(yes) == LOW) {
         delay(20);
@@ -106,12 +103,29 @@ void loop() {
     delay(10);
 }
 
+void pin_init() {
+    pinMode(yes, INPUT_PULLUP);
+    pinMode(back, INPUT_PULLUP);
+    pinMode(send, INPUT_PULLUP);
+    pinMode(light, OUTPUT);
+}
+
 void show() {
-    char buffer[2];
-    snprintf(buffer, sizeof(buffer), "%c", currentLetter);
-    send_message(buffer, 5, 119, 16);
-    send_message(receive_message, 4, 0, 0);
+    u8g2.clearBuffer();
+    char temp[2];
+    snprintf(temp, sizeof(temp), "%c", currentLetter);
+    send_message(temp, 3, 117, 32);
+    if (currentLetter != 'A') {
+        snprintf(temp, sizeof(temp), "%c", currentLetter-1);
+        send_message(temp, 2, 117, 16);
+    }
+    if (currentLetter != 'Z') {
+        snprintf(temp, sizeof(temp), "%c", currentLetter+1);
+        send_message(temp, 2, 117, 48);
+    }
+    send_message(receive_message, 2, 0, 0);
     send_message(will_message, 2, 0, 16);
+    u8g2.sendBuffer();
 }
 
 void letter(uint8_t currentCount) {
@@ -133,9 +147,7 @@ void wifi_init() {
     while (WiFi.status() != WL_CONNECTED) {
         if (millis() - start > 5000) {
             send_message("wifi timeout", 3, 0, 0);
-            while(1) {
-                delay(1000);
-            }
+            ESP.restart();
         }
     }
     if (WiFi.status() == WL_CONNECTED) {
@@ -155,29 +167,20 @@ void send_message(const char * message, uint8_t mode, uint8_t x, uint8_t y) {
         snprintf(payload, sizeof(payload), "{\"ID\":\"%s\",\"message\":\"%s\"}", device_id, message);
         mqttClient.publish(CHAT, payload);
     }
-    // 不清显存，刷新屏幕
     else if (mode == 2) {
         u8g2.setCursor(x, y);
         u8g2.print(message);
-        u8g2.sendBuffer();
     }
-    // 清理显存，刷新屏幕
     else if (mode == 3) {
-        u8g2.clearBuffer();
+        int width = u8g2.getStrWidth(message);      // 字符宽度
+        int height = u8g2.getFontAscent() - u8g2.getFontDescent(); // 字符高度
+        u8g2.drawBox(x - 2, y - 2, width + 4, height + 4);      //绘制背景框
+        // 绘制反色字符
+        u8g2.setDrawColor(0);
         u8g2.setCursor(x, y);
         u8g2.print(message);
-        u8g2.sendBuffer();
-    }
-    // 不清理显存，不刷新屏幕
-    else if (mode == 4) {
-        u8g2.setCursor(x, y);
-        u8g2.print(message);
-    }
-    // 清理显存，不刷新屏幕
-    else if (mode == 5) {
-        u8g2.clearBuffer();
-        u8g2.setCursor(x, y);
-        u8g2.print(message);
+        // 恢复默认绘制颜色
+        u8g2.setDrawColor(1);
     }
 }
 
