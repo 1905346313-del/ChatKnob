@@ -99,7 +99,7 @@ text
 #define PORT      1883                   // MQTT 端口
 ```
 
-选择开发板：Tools → Board → ESP32 Dev Module。
+选择开发板：Tools → Board → uPesy ESP32 Wroom DevKit。
 
 选择正确端口，点击 Upload 烧录。
 
@@ -150,9 +150,8 @@ ChatKnob.ino
 
 ---
 
-## 📜 许可证
-
-本项目采用 MIT License，可自由使用、修改、分发，甚至用于商业项目。只需保留原始版权声明即可。
+## 📷 效果展示
+![ChatKnob 实物展示](./ChatKnob.jpg)
 
 ---
 
@@ -161,5 +160,6 @@ ChatKnob.ino
 
 ---
 
-## 📷 效果展示
-![ChatKnob 实物展示](./ChatKnob.jpg)
+## 📜 许可证
+
+本项目采用 MIT License，可自由使用、修改、分发，甚至用于商业项目。只需保留原始版权声明即可。
