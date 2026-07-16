@@ -1,21 +1,21 @@
-#include <WiFi.h>
 #include <PubSubClient.h>
 #include <U8g2lib.h>
 #include <string.h>
 #include <ArduinoJson.h>
 #include <ESP32Encoder.h>
 #include <Wire.h>
+#include <WiFiManager.h>
 
 // WiFi
-#define SSID    "your_wifi_ssid"
-#define PASSWORD    "your_wifi_password"
-WiFiClient espClient;
+#define WiFi_name "ChatKnob_AP"     // 可自定义 WiFi 名称
+WiFiManager wm;
 // MQTT
-#define BROKER  "easyiothings.com"
+#define BROKER  "your_mqtt_broker"
 #define PORT    1883
 #define CHAT     "your_chat_topic"
 #define KEEPALIVE_SEC 15    // 此为实际时间的一半
 #define MESSAGE_SIZE 128
+WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 // 旋转编码器
 #define CLK 32  // A相
@@ -23,7 +23,7 @@ PubSubClient mqttClient(espClient);
 ESP32Encoder encoder;
 //OLED屏幕
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE, 5, 18);
-#define font u8g2_font_10x20_tf
+#define FONT u8g2_font_10x20_tf
 // 按键
 #define yes 23
 #define back 19
@@ -52,6 +52,7 @@ void pin_init();
 void setup() {
     encoder_init();
     oled_init();
+    //wm.resetSettings();  // 清除所有保存的 WiFi 信息
     wifi_init();
     Generate_MAC_ID();
     mqtt_init();
@@ -61,10 +62,14 @@ void setup() {
 }
 
 void loop() {
+    if (!mqttClient.connected()) {
+        wifi_init();
+        mqtt_init();
+    }
     mqttClient.loop();
     long currentCount = encoder.getCount();
     letter(currentCount);
-    // 选中字母
+    // 选中字符
     if (digitalRead(yes) == LOW) {
         delay(20);
         if (digitalRead(yes) == LOW) {
@@ -76,7 +81,7 @@ void loop() {
             }
         }
     }
-    // 删除字母
+    // 删除字符
     else if (digitalRead(back) == LOW) {
         delay(20);
         if (digitalRead(back) == LOW) {
@@ -92,9 +97,9 @@ void loop() {
         delay(20);
         if (digitalRead(send) == LOW) {
             while(digitalRead(send) == LOW);
-            digitalWrite(2, HIGH);
             send_message(will_message, 1);
             will_message[0] = '\0';
+            digitalWrite(2, HIGH);
         }
     }
     // 发送消息时指示灯会极快闪烁
@@ -114,7 +119,7 @@ void pin_init() {
 
 void show() {
     u8g2.clearBuffer();
-    char temp[4];
+    char temp[6];
     snprintf(temp, sizeof(temp), "%c", currentLetter);
     send_message(temp, 2, 59, 0);
     if (currentLetter != 33 ) {
@@ -147,21 +152,13 @@ void oled_init() {
     u8g2.setBusClock(400000);         // 高速模式
     u8g2.setContrast(255);            // 最高对比度
     u8g2.enableUTF8Print();           // 启用 UTF-8 支持中文
-    u8g2.setFont(font);
+    u8g2.setFont(FONT);
     u8g2.setFontPosTop();             // 字符定位到顶点
 }
 
 void wifi_init() {
-    WiFi.begin(SSID, PASSWORD);
-    int start = millis();
-    while (WiFi.status() != WL_CONNECTED) {
-        if (millis() - start > 5000) {
-            send_message("wifi timeout", 3, 0, 0);
-            ESP.restart();
-        }
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-        send_message("wifi ok", 3, 0, 0);
+    if (!wm.autoConnect(WiFi_name)) {
+        ESP.restart();
     }
 }
 
@@ -183,18 +180,37 @@ void send_message(const char * message, uint8_t mode, uint8_t x, uint8_t y) {
     else if (mode == 3) {
         u8g2.setFont(u8g2_font_unifont_t_symbols);
         u8g2.drawUTF8(x, y, message);
-        u8g2.setFont(font);
+        u8g2.setFont(FONT);
+    }
+    else if (mode == 4) {
+        u8g2.clearBuffer();
+        u8g2.drawUTF8(x, y, message);
+        u8g2.sendBuffer();
     }
 }
 
 void mqtt_init() {
+    if (mqttClient.connected()) {
+        return;
+    }
     mqttClient.setServer(BROKER, PORT);
     mqttClient.setKeepAlive(KEEPALIVE_SEC);
     mqttClient.setCallback(mqttCallback);
-    char payload[MESSAGE_SIZE];
-    snprintf(payload, sizeof(payload), "{\"ID\":\"%s\",\"status\":\"offline\"}", device_id);
-    mqttClient.connect(device_id, CHAT, 0, true, payload);
-    mqttClient.subscribe(CHAT);
+    int retry = 0;
+    while (!mqttClient.connected() && retry < 5) {
+        char payload[MESSAGE_SIZE];
+        snprintf(payload, sizeof(payload), "{\"ID\":\"%s\",\"status\":\"offline\"}", device_id);
+        if (mqttClient.connect(device_id, CHAT, 0, true, payload)) {
+            mqttClient.subscribe(CHAT);
+            return;
+        } else {
+            delay(500);
+            retry++;
+        }
+    }
+    send_message("Fail, will restart", 4, 0, 0);
+    delay(2000);
+    ESP.restart();
 }
 
 void mqttCallback(char* topic, uint8_t* payload, unsigned int length) {
