@@ -23,6 +23,7 @@ PubSubClient mqttClient(espClient);
 ESP32Encoder encoder;
 //OLED屏幕
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE, 5, 18);
+#define font u8g2_font_10x20_tf
 // 按键
 #define yes 23
 #define back 19
@@ -31,9 +32,11 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE, 5, 18);
 #define light 2
 
 char device_id[24];
-char currentLetter;
+char currentLetter = 0;
 char will_message[MESSAGE_SIZE];
 char receive_message[MESSAGE_SIZE*2];
+const int CHAR_START = 33;
+const int CHAR_COUNT = 94;
 
 void oled_init();
 void wifi_init();
@@ -42,7 +45,7 @@ void send_message(const char * message, uint8_t mode=0, uint8_t x=0, uint8_t y=0
 void mqtt_init();
 void mqttCallback(char* topic, uint8_t* payload, unsigned int length);
 void encoder_init();
-void letter(uint8_t currentCount);
+void letter(long currentCount);
 void show();
 void pin_init();
 
@@ -56,7 +59,6 @@ void setup() {
     pin_init();
     will_message[0] = '\0';
 }
-
 
 void loop() {
     mqttClient.loop();
@@ -112,14 +114,20 @@ void pin_init() {
 
 void show() {
     u8g2.clearBuffer();
-    char temp[2];
+    char temp[4];
     snprintf(temp, sizeof(temp), "%c", currentLetter);
-    send_message(temp, 3, 117, 32);
-    if (currentLetter != 'A') {
+    send_message(temp, 2, 117, 32);
+    snprintf(temp, sizeof(temp), ">");
+    send_message(temp, 2, 105, 32);
+    if (currentLetter != 33 ) {
+        snprintf(temp, sizeof(temp), "↻");
+        send_message(temp, 3, 105, 16);
         snprintf(temp, sizeof(temp), "%c", currentLetter-1);
         send_message(temp, 2, 117, 16);
     }
-    if (currentLetter != 'Z') {
+    if (currentLetter != 126) {
+        snprintf(temp, sizeof(temp), "↺");
+        send_message(temp, 3, 105, 48);
         snprintf(temp, sizeof(temp), "%c", currentLetter+1);
         send_message(temp, 2, 117, 48);
     }
@@ -128,8 +136,12 @@ void show() {
     u8g2.sendBuffer();
 }
 
-void letter(uint8_t currentCount) {
-    currentLetter = 'A' + (currentCount / 4 % 26 + 26) % 26; // 'A' 的 ASCII 是 65，'A'+0 是 'A'，'A'+25 是 'Z'
+void letter(long currentCount) {
+    int offset = (currentCount / 4) % CHAR_COUNT;
+    if (offset < 0) {
+        offset += CHAR_COUNT;
+    }
+    currentLetter = CHAR_START + offset;
 }
 
 void oled_init() {
@@ -137,7 +149,7 @@ void oled_init() {
     u8g2.setBusClock(400000);         // 高速模式
     u8g2.setContrast(255);            // 最高对比度
     u8g2.enableUTF8Print();           // 启用 UTF-8 支持中文
-    u8g2.setFont(u8g2_font_wqy12_t_chinese3);   // 设置中文字体
+    u8g2.setFont(font);
     u8g2.setFontPosTop();             // 字符定位到顶点
 }
 
@@ -168,19 +180,12 @@ void send_message(const char * message, uint8_t mode, uint8_t x, uint8_t y) {
         mqttClient.publish(CHAT, payload);
     }
     else if (mode == 2) {
-        u8g2.setCursor(x, y);
-        u8g2.print(message);
+        u8g2.drawUTF8(x, y, message);
     }
     else if (mode == 3) {
-        int width = u8g2.getStrWidth(message);      // 字符宽度
-        int height = u8g2.getFontAscent() - u8g2.getFontDescent(); // 字符高度
-        u8g2.drawBox(x - 2, y - 2, width + 4, height + 4);      //绘制背景框
-        // 绘制反色字符
-        u8g2.setDrawColor(0);
-        u8g2.setCursor(x, y);
-        u8g2.print(message);
-        // 恢复默认绘制颜色
-        u8g2.setDrawColor(1);
+        u8g2.setFont(u8g2_font_unifont_t_symbols);
+        u8g2.drawUTF8(x, y, message);
+        u8g2.setFont(font);
     }
 }
 
@@ -227,5 +232,5 @@ void encoder_init() {
     pinMode(DT, INPUT_PULLUP);
     encoder.attachFullQuad(CLK, DT);
     encoder.setFilter(1023);
-    encoder.setCount(0);
+    encoder.setCount(128);
 }
