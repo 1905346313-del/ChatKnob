@@ -116,23 +116,21 @@ void show() {
     u8g2.clearBuffer();
     char temp[4];
     snprintf(temp, sizeof(temp), "%c", currentLetter);
-    send_message(temp, 2, 117, 32);
-    snprintf(temp, sizeof(temp), ">");
-    send_message(temp, 2, 105, 32);
+    send_message(temp, 2, 59, 0);
     if (currentLetter != 33 ) {
         snprintf(temp, sizeof(temp), "↻");
-        send_message(temp, 3, 105, 16);
+        send_message(temp, 3, 0, 0);
         snprintf(temp, sizeof(temp), "%c", currentLetter-1);
-        send_message(temp, 2, 117, 16);
+        send_message(temp, 2, 10, 0);
     }
     if (currentLetter != 126) {
         snprintf(temp, sizeof(temp), "↺");
-        send_message(temp, 3, 105, 48);
+        send_message(temp, 3, 121, 0);
         snprintf(temp, sizeof(temp), "%c", currentLetter+1);
-        send_message(temp, 2, 117, 48);
+        send_message(temp, 2, 111, 0);
     }
-    send_message(receive_message, 2, 0, 0);
-    send_message(will_message, 2, 0, 16);
+    send_message(receive_message, 2, 0, 16);
+    send_message(will_message, 2, 0, 32);
     u8g2.sendBuffer();
 }
 
