@@ -88,7 +88,7 @@ text
 
 ## ⚙️ 配置与烧录
 
-1. 下载本仓库代码，用 Arduino IDE 打开 `chat.ino`。
+1. 下载本仓库代码，用 Arduino IDE 打开 `ChatKnob.ino`。
 2. 找到顶部的配置区域，修改以下宏定义：
 
 ```cpp
@@ -126,7 +126,7 @@ text
 ## 📂 代码结构
 
 ```text
-chat.ino
+ChatKnob.ino
 ├── 配置区 (WiFi / MQTT / 引脚定义 / 常量)
 ├── setup()
 │   ├── encoder_init()      // 编码器初始化
