@@ -10,11 +10,11 @@
 #define WiFi_name "ChatKnob_AP"     // 可自定义 WiFi 名称
 WiFiManager wm;
 // MQTT
-#define BROKER  "your_mqtt_broker"
+#define BROKER  "easyiothings.com"
 #define PORT    1883
-#define CHAT     "your_chat_topic"
-#define KEEPALIVE_SEC 15    // 此为实际时间的一半
-#define MESSAGE_SIZE 128
+#define CHAT     "chat2026712"
+#define KEEPALIVE_SEC 15    // 心跳间隔（此为实际时间的一半）
+#define MESSAGE_SIZE 128    // 限制接受信息和发送信息的大小，接受是发送的2倍
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 // 旋转编码器
@@ -23,20 +23,22 @@ PubSubClient mqttClient(espClient);
 ESP32Encoder encoder;
 //OLED屏幕
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE, 5, 18);
-#define FONT u8g2_font_10x20_tf
+#define FONT u8g2_font_10x20_tf     // oled 屏幕主要使用的字体
 // 按键
-#define yes 23
-#define back 19
-#define send 21
+#define yes 23      // 确认选择字符
+#define back 19     // 删除最后一个字符
+#define send 21     // 发送已确认的所有字符
 // 指示灯
-#define light 2
+#define light 2     // 板载指示灯引脚，作为发送信息的提示
 
-char device_id[24];
-char currentLetter = 0;
-char will_message[MESSAGE_SIZE];
-char receive_message[MESSAGE_SIZE*2];
-const int CHAR_START = 33;
-const int CHAR_COUNT = 94;
+char device_id[24];     // 存储设备 id
+char current_letter = 0; // 现在居中的字符
+char will_message[MESSAGE_SIZE];    // 将要发送的字符的列表
+char receive_message[MESSAGE_SIZE*2];   // 接受到的字符的列表
+const int CHAR_START = 33;      // 用于平滑选择字符（起始字符的ascii码）
+const int CHAR_COUNT = 94;      // 用于平滑选择字符（字符数量）
+bool inMenu = false;    // 菜单标志
+bool refresh = true;    // 刷新屏幕标志
 
 void oled_init();
 void wifi_init();
@@ -45,11 +47,14 @@ void send_message(const char * message, uint8_t mode=0, uint8_t x=0, uint8_t y=0
 void mqtt_init();
 void mqttCallback(char* topic, uint8_t* payload, unsigned int length);
 void encoder_init();
-void letter(long currentCount);
+void letter(long count);
 void show();
 void pin_init();
+void menu();
+void show_menu();
 
 void setup() {
+    pin_init();
     encoder_init();
     oled_init();
     //wm.resetSettings();  // 清除所有保存的 WiFi 信息
@@ -57,7 +62,7 @@ void setup() {
     Generate_MAC_ID();
     mqtt_init();
     send_message("online", 1);
-    pin_init();
+    
     will_message[0] = '\0';
 }
 
@@ -67,8 +72,8 @@ void loop() {
         mqtt_init();
     }
     mqttClient.loop();
-    long currentCount = encoder.getCount();
-    letter(currentCount);
+    long current_count = encoder.getCount();
+    letter(current_count);
     // 选中字符
     if (digitalRead(yes) == LOW) {
         delay(20);
@@ -76,19 +81,29 @@ void loop() {
             while(digitalRead(yes) == LOW);
             int len = strlen(will_message);
             if (len < sizeof(will_message) - 1) {
-                will_message[len] = currentLetter;
+                will_message[len] = current_letter;
                 will_message[len + 1] = '\0';
             }
+            refresh = true;
         }
     }
-    // 删除字符
+    // 删除字符 & 长按删除键进入菜单（设置菜单标志）
     else if (digitalRead(back) == LOW) {
         delay(20);
         if (digitalRead(back) == LOW) {
-            while(digitalRead(back) == LOW);
-            int len = strlen(will_message);
-            if (len > 0) {
-                will_message[len - 1] = '\0';
+            long last_time = millis();
+            while(digitalRead(back) == LOW) {
+                if (millis() - last_time >= 2000) {
+                    inMenu = true;
+                    break;
+                }
+            }
+            if (!inMenu) {
+                int len = strlen(will_message);
+                if (len > 0) {
+                    will_message[len - 1] = '\0';
+                }
+                refresh = true;
             }
         }
     }
@@ -100,38 +115,61 @@ void loop() {
             send_message(will_message, 1);
             will_message[0] = '\0';
             digitalWrite(2, HIGH);
+            refresh = true;
         }
     }
     // 发送消息时指示灯会极快闪烁
     else {
         digitalWrite(2, LOW);
     }
-    show();
+    if (refresh) {
+        show();
+        refresh = false;
+    }
     delay(10);
+    if (inMenu) {
+        menu();
+        inMenu = false;
+        refresh = true;
+    }
+}
+
+void menu() {
+    show_menu();
+    delay(2000);
+}
+
+void show_menu() {
+    send_message("menu", 4, 0, 0);
 }
 
 void pin_init() {
+    // 旋转编码器
+    pinMode(CLK, INPUT_PULLUP);
+    pinMode(DT, INPUT_PULLUP);
+    // 按键
     pinMode(yes, INPUT_PULLUP);
     pinMode(back, INPUT_PULLUP);
     pinMode(send, INPUT_PULLUP);
+    // 指示灯
     pinMode(light, OUTPUT);
 }
 
 void show() {
     u8g2.clearBuffer();
     char temp[6];
-    snprintf(temp, sizeof(temp), "%c", currentLetter);
+    snprintf(temp, sizeof(temp), "%c", current_letter);
     send_message(temp, 2, 59, 0);
-    if (currentLetter != 33 ) {
+    if (current_letter != 33 ) {
         snprintf(temp, sizeof(temp), "↻");
         send_message(temp, 3, 0, 0);
-        snprintf(temp, sizeof(temp), "%c", currentLetter-1);
+        snprintf(temp, sizeof(temp), "%c", current_letter-1);
         send_message(temp, 2, 10, 0);
     }
-    if (currentLetter != 126) {
+    if (current_letter != 126) {
         snprintf(temp, sizeof(temp), "↺");
         send_message(temp, 3, 121, 0);
-        snprintf(temp, sizeof(temp), "%c", currentLetter+1);
+        snprintf(temp, sizeof(temp), "%c", current_letter+1);
         send_message(temp, 2, 111, 0);
     }
     send_message(receive_message, 2, 0, 16);
@@ -139,12 +177,16 @@ void show() {
     u8g2.sendBuffer();
 }
 
-void letter(long currentCount) {
-    int offset = (currentCount / 4) % CHAR_COUNT;
+void letter(long count) {
+    int offset = (count / 4) % CHAR_COUNT;
     if (offset < 0) {
         offset += CHAR_COUNT;
     }
-    currentLetter = CHAR_START + offset;
+    char new_letter = CHAR_START + offset;
+    if (new_letter != current_letter) {
+        current_letter = new_letter;
+        refresh = true;
+    }
 }
 
 void oled_init() {
@@ -208,7 +250,7 @@ void mqtt_init() {
             retry++;
         }
     }
-    send_message("Fail, will restart", 4, 0, 0);
+    send_message("restart", 4, 0, 0);
     delay(2000);
     ESP.restart();
 }
@@ -236,14 +278,13 @@ void mqttCallback(char* topic, uint8_t* payload, unsigned int length) {
     // 在 OLED 上显示
     if (msg_text != nullptr) {
         snprintf(receive_message, sizeof(receive_message), "%s: %s", sender, msg_text);
+        refresh = true;
     }else {
         return;
     }
 }
 
 void encoder_init() {
-    pinMode(CLK, INPUT_PULLUP);
-    pinMode(DT, INPUT_PULLUP);
     encoder.attachFullQuad(CLK, DT);
     encoder.setFilter(1023);
     encoder.setCount(128);
