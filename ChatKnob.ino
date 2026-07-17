@@ -10,9 +10,9 @@
 #define WiFi_name "ChatKnob_AP"     // 可自定义 WiFi 名称
 WiFiManager wm;
 // MQTT
-#define BROKER  "easyiothings.com"
+#define BROKER  "your_mqtt_broker"
 #define PORT    1883
-#define CHAT     "chat2026712"
+#define CHAT     "your_chat_topic"
 #define KEEPALIVE_SEC 15    // 心跳间隔（此为实际时间的一半）
 #define MESSAGE_SIZE 128    // 限制接受信息和发送信息的大小，接受是发送的2倍
 WiFiClient espClient;
