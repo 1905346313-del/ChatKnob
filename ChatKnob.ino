@@ -5,14 +5,12 @@
 #include <ESP32Encoder.h>
 #include <Wire.h>
 #include <WiFiManager.h>
+#include <Preferences.h>
 
 // WiFi
 #define WiFi_name "ChatKnob_AP"     // 可自定义 WiFi 名称
 WiFiManager wm;
 // MQTT
-#define BROKER  "your_mqtt_broker_address"   // 自定义 MQTT 服务器地址
-#define PORT    1883
-#define CHAT     "your_chat_topic"   // 自定义聊天主题
 #define KEEPALIVE_SEC 15    // 心跳间隔（此为实际时间的一半）
 #define MESSAGE_SIZE 128    // 限制接受信息和发送信息的大小，接受是发送的2倍
 WiFiClient espClient;
@@ -24,21 +22,27 @@ ESP32Encoder encoder;
 //OLED屏幕
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE, 5, 18);
 #define FONT u8g2_font_10x20_tf     // oled 屏幕主要使用的字体
+bool refresh = true;    // 刷新屏幕标志
 // 按键
 #define YES 23      // 确认选择字符
 #define BACK 19     // 删除最后一个字符
 #define SEND 21     // 发送已确认的所有字符
+bool long_press = false;    // 长按标志
 // 指示灯
 #define LIGHT 2     // 板载指示灯引脚，作为发送信息的提示
-
+// 持久化存储
+Preferences prefs;
+char mqtt_broker[40] = "";   // 存储 mqtt broker 地址
+char mqtt_port[6] = "";     // 存储 mqtt broker 端口
+char mqtt_topic[40] = "";   // 存储 mqtt topic
+// 身份标识
 char device_id[24];     // 存储设备 id
+
 char current_letter = 0; // 现在居中的字符
 char will_message[MESSAGE_SIZE];    // 将要发送的字符的列表
 char receive_message[MESSAGE_SIZE*2];   // 接受到的字符的列表
 const int char_start = 33;      // 用于平滑选择字符（起始字符的ascii码）
 const int char_count = 94;      // 用于平滑选择字符（字符数量）
-bool long_press = false;    // 长按标志
-bool refresh = true;    // 刷新屏幕标志
 
 void oled_init();
 void wifi_init();
@@ -54,15 +58,17 @@ void menu();
 void show_menu();
 void button();      // 消抖，进入 actionn 函数对应模式
 void action(uint8_t mode);    // 执行按键动作
+void save_mqtt_config();
+void load_mqtt_config();
 
 void setup() {
+    wm.resetSettings();  // 清除所有保存设置
     pin_init();
     oled_init();
     wifi_init();
     generate_mac_id();
     mqtt_init();
     encoder_init();
-    //wm.resetSettings();  // 清除所有保存的 WiFi 信息
     send_message("online", 1);
     will_message[0] = '\0';
 }
@@ -86,6 +92,22 @@ void loop() {
         long_press = false;
         refresh = true;
     }
+}
+
+void save_mqtt_config() {
+    prefs.begin("mqtt", false);
+    prefs.putString("broker", mqtt_broker);
+    prefs.putString("port", mqtt_port);
+    prefs.putString("topic", mqtt_topic);
+    prefs.end();
+}
+
+void load_mqtt_config() {
+    prefs.begin("mqtt", true);
+    strcpy(mqtt_broker, prefs.getString("broker", "").c_str());
+    strcpy(mqtt_port, prefs.getString("port", "").c_str());
+    strcpy(mqtt_topic, prefs.getString("topic", "").c_str());
+    prefs.end();
 }
 
 void menu() {
@@ -156,9 +178,20 @@ void oled_init() {
 }
 
 void wifi_init() {
+    load_mqtt_config();
+    WiFiManagerParameter custom_broker("broker", "MQTT 服务器", mqtt_broker, sizeof(mqtt_broker));
+    WiFiManagerParameter custom_port("port", "MQTT 端口", mqtt_port, sizeof(mqtt_port));
+    WiFiManagerParameter custom_topic("topic", "MQTT 主题", mqtt_topic, sizeof(mqtt_topic));
+    wm.addParameter(&custom_broker);
+    wm.addParameter(&custom_port);
+    wm.addParameter(&custom_topic);
     if (!wm.autoConnect(WiFi_name)) {
         ESP.restart();
     }
+    strcpy(mqtt_broker, custom_broker.getValue());
+    strcpy(mqtt_port, custom_port.getValue());
+    strcpy(mqtt_topic, custom_topic.getValue());
+    save_mqtt_config();
 }
 
 void generate_mac_id() {
@@ -171,7 +204,7 @@ void send_message(const char * message, uint8_t mode, uint8_t x, uint8_t y) {
     if (mode == 1) {
         char payload[MESSAGE_SIZE];
         snprintf(payload, sizeof(payload), "{\"ID\":\"%s\",\"message\":\"%s\"}", device_id, message);
-        mqttClient.publish(CHAT, payload);
+        mqttClient.publish(mqtt_topic, payload);
     }
     else if (mode == 2) {
         u8g2.drawUTF8(x, y, message);
@@ -192,15 +225,15 @@ void mqtt_init() {
     if (mqttClient.connected()) {
         return;
     }
-    mqttClient.setServer(BROKER, PORT);
+    mqttClient.setServer(mqtt_broker, atoi(mqtt_port));
     mqttClient.setKeepAlive(KEEPALIVE_SEC);
     mqttClient.setCallback(mqttCallback);
     int retry = 0;
     while (!mqttClient.connected() && retry < 5) {
         char payload[MESSAGE_SIZE];
         snprintf(payload, sizeof(payload), "{\"ID\":\"%s\",\"status\":\"offline\"}", device_id);
-        if (mqttClient.connect(device_id, CHAT, 0, true, payload)) {
-            mqttClient.subscribe(CHAT);
+        if (mqttClient.connect(device_id, mqtt_topic, 0, true, payload)) {
+            mqttClient.subscribe(mqtt_topic);
             return;
         } else {
             delay(500);
