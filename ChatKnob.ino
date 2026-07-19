@@ -10,9 +10,9 @@
 #define WiFi_name "ChatKnob_AP"     // 可自定义 WiFi 名称
 WiFiManager wm;
 // MQTT
-#define BROKER  "your_mqtt_broker"
+#define BROKER  "your_mqtt_broker_address"   // 自定义 MQTT 服务器地址
 #define PORT    1883
-#define CHAT     "your_chat_topic"
+#define CHAT     "your_chat_topic"   // 自定义聊天主题
 #define KEEPALIVE_SEC 15    // 心跳间隔（此为实际时间的一半）
 #define MESSAGE_SIZE 128    // 限制接受信息和发送信息的大小，接受是发送的2倍
 WiFiClient espClient;
@@ -25,24 +25,24 @@ ESP32Encoder encoder;
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE, 5, 18);
 #define FONT u8g2_font_10x20_tf     // oled 屏幕主要使用的字体
 // 按键
-#define yes 23      // 确认选择字符
-#define back 19     // 删除最后一个字符
-#define send 21     // 发送已确认的所有字符
+#define YES 23      // 确认选择字符
+#define BACK 19     // 删除最后一个字符
+#define SEND 21     // 发送已确认的所有字符
 // 指示灯
-#define light 2     // 板载指示灯引脚，作为发送信息的提示
+#define LIGHT 2     // 板载指示灯引脚，作为发送信息的提示
 
 char device_id[24];     // 存储设备 id
 char current_letter = 0; // 现在居中的字符
 char will_message[MESSAGE_SIZE];    // 将要发送的字符的列表
 char receive_message[MESSAGE_SIZE*2];   // 接受到的字符的列表
-const int CHAR_START = 33;      // 用于平滑选择字符（起始字符的ascii码）
-const int CHAR_COUNT = 94;      // 用于平滑选择字符（字符数量）
-bool inMenu = false;    // 菜单标志
+const int char_start = 33;      // 用于平滑选择字符（起始字符的ascii码）
+const int char_count = 94;      // 用于平滑选择字符（字符数量）
+bool long_press = false;    // 长按标志
 bool refresh = true;    // 刷新屏幕标志
 
 void oled_init();
 void wifi_init();
-void Generate_MAC_ID();
+void generate_mac_id();
 void send_message(const char * message, uint8_t mode=0, uint8_t x=0, uint8_t y=0);
 void mqtt_init();
 void mqttCallback(char* topic, uint8_t* payload, unsigned int length);
@@ -52,17 +52,18 @@ void show();
 void pin_init();
 void menu();
 void show_menu();
+void button();      // 消抖，进入 actionn 函数对应模式
+void action(uint8_t mode);    // 执行按键动作
 
 void setup() {
     pin_init();
-    encoder_init();
     oled_init();
-    //wm.resetSettings();  // 清除所有保存的 WiFi 信息
     wifi_init();
-    Generate_MAC_ID();
+    generate_mac_id();
     mqtt_init();
+    encoder_init();
+    //wm.resetSettings();  // 清除所有保存的 WiFi 信息
     send_message("online", 1);
-    
     will_message[0] = '\0';
 }
 
@@ -74,73 +75,29 @@ void loop() {
     mqttClient.loop();
     long current_count = encoder.getCount();
     letter(current_count);
-    // 选中字符
-    if (digitalRead(yes) == LOW) {
-        delay(20);
-        if (digitalRead(yes) == LOW) {
-            while(digitalRead(yes) == LOW);
-            int len = strlen(will_message);
-            if (len < sizeof(will_message) - 1) {
-                will_message[len] = current_letter;
-                will_message[len + 1] = '\0';
-            }
-            refresh = true;
-        }
-    }
-    // 删除字符 & 长按删除键进入菜单（设置菜单标志）
-    else if (digitalRead(back) == LOW) {
-        delay(20);
-        if (digitalRead(back) == LOW) {
-            long last_time = millis();
-            while(digitalRead(back) == LOW) {
-                if (millis() - last_time >= 2000) {
-                    inMenu = true;
-                    break;
-                }
-            }
-            if (!inMenu) {
-                int len = strlen(will_message);
-                if (len > 0) {
-                    will_message[len - 1] = '\0';
-                }
-                refresh = true;
-            }
-        }
-    }
-    // 发送信息
-    else if (digitalRead(send) == LOW) {
-        delay(20);
-        if (digitalRead(send) == LOW) {
-            while(digitalRead(send) == LOW);
-            send_message(will_message, 1);
-            will_message[0] = '\0';
-            digitalWrite(2, HIGH);
-            refresh = true;
-        }
-    }
-    // 发送消息时指示灯会极快闪烁
-    else {
-        digitalWrite(2, LOW);
-    }
+    button();
     if (refresh) {
         show();
         refresh = false;
     }
     delay(10);
-    if (inMenu) {
+    if (long_press) {
         menu();
-        inMenu = false;
+        long_press = false;
         refresh = true;
     }
 }
 
 void menu() {
-    show_menu();
+    send_message("menu", 4, 0, 0);
     delay(2000);
+    show_menu();
 }
 
 void show_menu() {
-    send_message("menu", 4, 0, 0);
+    u8g2.clearBuffer();
+    send_message("", 2, 0, 0);
+    u8g2.sendBuffer();
 }
 
 void pin_init() {
@@ -148,11 +105,11 @@ void pin_init() {
     pinMode(CLK, INPUT_PULLUP);
     pinMode(DT, INPUT_PULLUP);
     // 按键
-    pinMode(yes, INPUT_PULLUP);
-    pinMode(back, INPUT_PULLUP);
-    pinMode(send, INPUT_PULLUP);
+    pinMode(YES, INPUT_PULLUP);
+    pinMode(BACK, INPUT_PULLUP);
+    pinMode(SEND, INPUT_PULLUP);
     // 指示灯
-    pinMode(light, OUTPUT);
+    pinMode(LIGHT, OUTPUT);
 }
 
 void show() {
@@ -178,11 +135,11 @@ void show() {
 }
 
 void letter(long count) {
-    int offset = (count / 4) % CHAR_COUNT;
+    int offset = (count / 4) % char_count;
     if (offset < 0) {
-        offset += CHAR_COUNT;
+        offset += char_count;
     }
-    char new_letter = CHAR_START + offset;
+    char new_letter = char_start + offset;
     if (new_letter != current_letter) {
         current_letter = new_letter;
         refresh = true;
@@ -204,7 +161,7 @@ void wifi_init() {
     }
 }
 
-void Generate_MAC_ID() {
+void generate_mac_id() {
     uint8_t mac[6];
     WiFi.macAddress(mac);
     snprintf(device_id, sizeof(device_id), "%02X%02X%02X%02X%02X%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
@@ -288,4 +245,68 @@ void encoder_init() {
     encoder.attachFullQuad(CLK, DT);
     encoder.setFilter(1023);
     encoder.setCount(128);
+}
+
+void button() {
+    // 选中字符
+    if (digitalRead(YES) == LOW) {
+        delay(20);
+        if (digitalRead(YES) == LOW) {
+            while(digitalRead(YES) == LOW);
+            action(1);
+        }
+    }
+    // 删除字符 & 长按删除键进入菜单（设置菜单标志）
+    else if (digitalRead(BACK) == LOW) {
+        delay(20);
+        if (digitalRead(BACK) == LOW) {
+            long last_time = millis();
+            long_press = false;
+            while(digitalRead(BACK) == LOW) {
+                if (millis() - last_time >= 2000) {
+                    long_press = true;
+                    break;
+                }
+            }
+            if (!long_press) {
+                action(2);
+            }
+        }
+    }
+    // 发送信息
+    else if (digitalRead(SEND) == LOW) {
+        delay(20);
+        if (digitalRead(SEND) == LOW) {
+            while(digitalRead(SEND) == LOW);
+            action(3);
+        }
+    }
+    // 发送消息时指示灯会极快闪烁
+    else {
+        digitalWrite(LIGHT, LOW);
+    }
+}
+
+void action(uint8_t mode) {
+    if (mode == 1) {
+        int len = strlen(will_message);
+        if (len < sizeof(will_message) - 1) {
+            will_message[len] = current_letter;
+            will_message[len + 1] = '\0';
+        }
+        refresh = true;
+    }
+    else if (mode == 2) {
+        int len = strlen(will_message);
+        if (len > 0) {
+            will_message[len - 1] = '\0';
+        }
+        refresh = true;
+    }
+    else if (mode == 3) {
+        send_message(will_message, 1);
+        will_message[0] = '\0';
+        digitalWrite(LIGHT, HIGH);
+        refresh = true;
+    }
 }
