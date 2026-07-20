@@ -62,13 +62,14 @@ void save_mqtt_config();
 void load_mqtt_config();
 
 void setup() {
-    wm.resetSettings();  // 清除所有保存设置
     pin_init();
     oled_init();
+    encoder_init();
+    // wm.resetSettings();  // 清除所有 WiFi 信息
     wifi_init();
     generate_mac_id();
     mqtt_init();
-    encoder_init();
+    
     send_message("online", 1);
     will_message[0] = '\0';
 }
@@ -178,6 +179,8 @@ void oled_init() {
 }
 
 void wifi_init() {
+    send_message(WiFi_name, 4, 0, 0);
+
     load_mqtt_config();
     WiFiManagerParameter custom_broker("broker", "MQTT 服务器", mqtt_broker, sizeof(mqtt_broker));
     WiFiManagerParameter custom_port("port", "MQTT 端口", mqtt_port, sizeof(mqtt_port));
@@ -185,9 +188,11 @@ void wifi_init() {
     wm.addParameter(&custom_broker);
     wm.addParameter(&custom_port);
     wm.addParameter(&custom_topic);
+
     if (!wm.autoConnect(WiFi_name)) {
         ESP.restart();
     }
+
     strcpy(mqtt_broker, custom_broker.getValue());
     strcpy(mqtt_port, custom_port.getValue());
     strcpy(mqtt_topic, custom_topic.getValue());
