@@ -65,7 +65,6 @@ void setup() {
     pin_init();
     oled_init();
     encoder_init();
-    // wm.resetSettings();  // 清除所有 WiFi 信息
     wifi_init();
     generate_mac_id();
     mqtt_init();
@@ -87,12 +86,25 @@ void loop() {
         show();
         refresh = false;
     }
-    delay(10);
     if (long_press) {
         menu();
-        long_press = false;
         refresh = true;
+        long_press = false;
     }
+    delay(10);
+}
+
+void menu() {
+    send_message("reset wifi", 4, 0, 0);
+    delay(2000);
+    wm.resetSettings();
+    show_menu();
+}
+
+void show_menu() {
+    u8g2.clearBuffer();
+    send_message("", 2, 0, 0);
+    u8g2.sendBuffer();
 }
 
 void save_mqtt_config() {
@@ -109,18 +121,6 @@ void load_mqtt_config() {
     strcpy(mqtt_port, prefs.getString("port", "").c_str());
     strcpy(mqtt_topic, prefs.getString("topic", "").c_str());
     prefs.end();
-}
-
-void menu() {
-    send_message("menu", 4, 0, 0);
-    delay(2000);
-    show_menu();
-}
-
-void show_menu() {
-    u8g2.clearBuffer();
-    send_message("", 2, 0, 0);
-    u8g2.sendBuffer();
 }
 
 void pin_init() {
