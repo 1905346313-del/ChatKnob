@@ -14,7 +14,7 @@ ChatKnob is an ESP32-based hardware chat terminal. It replaces traditional keybo
 - 🎯 **Direction indicators**: `↻` / `↺` show rotation direction with adjacent character preview, current character highlighted in the center
 - ✅ **Three-button operation**:
   - `YES`: Append current character to input buffer
-  - `BACK`: Short press to delete last character (backspace), long press (2s) to enter menu
+  - `BACK`: Short press to delete last character (backspace), long press (2s) to reset WiFi and re-enter provisioning mode
   - `SEND`: Publish message via MQTT and clear input buffer
 - 🖥️ **OLED display**:
   - Top navigation bar: direction indicators + adjacent characters + current character (centered)
@@ -23,8 +23,9 @@ ChatKnob is an ESP32-based hardware chat terminal. It replaces traditional keybo
 - 🌐 **MQTT communication**: Auto-generates unique device ID from MAC address, supports Last Will and Testament (LWT)
 - 📡 **WiFi provisioning**: First boot automatically creates `ChatKnob_AP` hotspot, OLED displays hotspot name, configure WiFi + MQTT via web portal
 - 💾 **Persistent storage**: MQTT parameters (broker, port, topic) saved to Flash, survives power cycle
-- 💡 **LED feedback**: Flashes when sending messages
 - 🔁 **Auto-reconnect**: Automatically reconnects on WiFi/MQTT disconnection
+- 🔄 **Reprovisioning**: Long press `BACK` for 2 seconds to clear WiFi credentials and enter provisioning mode
+- 💡 **LED feedback**: Flashes when sending messages
 - 📦 **Open source**: MIT License
 
 ---
@@ -120,11 +121,7 @@ ChatKnob is an ESP32-based hardware chat terminal. It replaces traditional keybo
 
 ### Long Press
 
-- **Long press BACK (2 seconds)**: Enter menu (work in progress).
-
-### Reconfigure WiFi or MQTT
-
-Uncomment `wm.resetSettings();` in `setup()`, flash once to clear all saved settings. Device will enter provisioning mode on next boot.
+- **Long press BACK (2 seconds)**: Clear saved WiFi credentials and reboot into provisioning mode. Use this to switch to a different WiFi network or update MQTT settings.
 
 ---
 
@@ -134,7 +131,6 @@ Uncomment `wm.resetSettings();` in `setup()`, flash once to clear all saved sett
 ChatKnob.ino
 ├── Configuration (WiFi / MQTT / Pin definitions / Constants)
 ├── setup()
-│   ├── wm.resetSettings()   // Uncomment to force reprovisioning
 │   ├── pin_init()           // GPIO pin mode setup
 │   ├── oled_init()          // OLED driver and font
 │   ├── encoder_init()       // Encoder library mounting
@@ -148,7 +144,8 @@ ChatKnob.ino
 │   ├── letter()             // Encoder → character mapping
 │   ├── button()             // Button debounce & dispatch
 │   ├── refresh → show()     // Unified OLED refresh
-│   └── long_press → menu()  // Menu entry (placeholder)
+│   └── long_press → menu()  // Long press BACK: reset WiFi
+├── menu()                   // Clear WiFi credentials, enter provisioning
 ├── send_message()           // Unified output interface
 │   ├── mode=1 → MQTT publish
 │   ├── mode=2 → OLED print (primary font)
